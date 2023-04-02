@@ -1,6 +1,7 @@
 // Setup, loading libraries and initial config
-const config = require('dotenv').config().parsed
-if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
+const dotenvConfig = require('dotenv').config().parsed
+if (!dotenvConfig || !dotenvConfig.apiUrl || !dotenvConfig.basePath || !dotenvConfig.channelID || !dotenvConfig.adminID || !dotenvConfig.discordBotKey || !dotenvConfig.pixelLimit || !dotenvConfig.fileWatcher || !dotenvConfig.samplers) {throw ('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options')}
+const config = {...dotenvConfig,privateModels: JSON.parse(dotenvConfig.PRIVATE_MODELS || "{}")}
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
@@ -192,6 +193,14 @@ if(!creditsDisabled)
 
 // Functions
 
+function isModelAllowed(userId, modelName) {
+  const allPrivateModels = [].concat(...Object.values(config.privateModels))
+  if (allPrivateModels.includes(modelName)) {
+    return (config.privateModels[userId] && config.privateModels[userId].includes(modelName)) || userId === config.adminID
+  }
+  return true
+}
+
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
@@ -238,6 +247,10 @@ function request(request){
   if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model=defaultModel}else{args.model=args.model}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
+  if (!isModelAllowed(request.userid, args.model)) { // Check if the user is allowed to use the requested model
+    console.log(`User ${request.userid} is not allowed to use model ${args.model}`)
+    return
+  }  
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
   var newJob={
     id: queue.length+1,
