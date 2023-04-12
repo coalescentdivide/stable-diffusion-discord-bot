@@ -65,7 +65,7 @@ const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultScale = parseFloat(config.defaultScale)||7.5
 const maxSteps = parseInt(config.maxSteps)||100
 const maxIterations = parseInt(config.maxIterations)||10
-const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
+const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
@@ -1426,26 +1426,26 @@ bot.on("messageCreate", (msg) => {
           msg.content = msg.content.replace('<@'+m.id+'>','').replace('!dream','')
           msg.content='!dream '+msg.content
         } else if (msg.referencedMessage.author.id===bot.application.id) { // just a response to a message from arty, confirm before render
-          var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
-          var newJob = JSON.parse(JSON.stringify(queue[jobid - 1]))
-          var newSeed = msg.content.includes('--seed') ? '' : ' --seed ' + newJob.seed
-          var newModel = msg.content.includes('--model') ? '' : ' --model ' + newJob.model
-          var newSampler = msg.content.includes('--sampler') ? '' : ' --sampler ' + newJob.sampler
-          var initSampler = msg.content.includes('--sampler') ? '' : ' --sampler ddim '
-          var newSteps = msg.content.includes('--steps') ? '' : ' --steps ' + newJob.steps
-          var newScale = msg.content.includes('--scale') ? '' : ' --scale ' + newJob.scale
-          var newHeight = msg.content.includes('--height') ? '' : ' --height ' +newJob.height
-          var newWidth = msg.content.includes('--width') ? '' :  ' --width ' + newJob.width
-          var newStrength = msg.content.includes('--strength') ? '' : ' --strength ' + newJob.strength
-          var newPerlin = msg.content.includes('--perlin') ? '' : ' --perlin ' + newJob.perlin
-          var newSeamless = msg.content.includes('--seamless') && !msg.content.includes('--seamless false') ? ' --seamless ' : ''
-          var newThreshold = msg.content.includes('--threshold') ? '' : ' --threshold ' + newJob.threshold
-          var newGfpgan_strength = msg.content.includes('--gfpgan_strength') ? '' : ' --gfpgan_strength ' + newJob.gfpgan_strength
-          var newCodeformer_strength = msg.content.includes('--codeformer_strength') ? '' : ' --codeformer_strength ' + newJob.codeformer_strength
-          var newUpscale_level = msg.content.includes('--upscale_level') ? '' : ' --upscale_level ' + newJob.upscale_level
-          var newUpscale_strength = msg.content.includes('--upscale_strength') ? '' : ' --upscale_strength ' + newJob.strength
-          var jobstring = newWidth + newHeight + newSteps + newSeed + newStrength + newScale + newSampler + newModel + newPerlin + newSeamless + newThreshold + newGfpgan_strength + newCodeformer_strength + newUpscale_level + newUpscale_strength
           if (msg.referencedMessage.components && msg.referencedMessage.components[0] && msg.referencedMessage.components[0].components[0] && msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')) {
+            var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
+            var newJob = JSON.parse(JSON.stringify(queue[jobid - 1]))
+            var newSeed = msg.content.includes('--seed') ? '' : ' --seed ' + newJob.seed
+            var newModel = msg.content.includes('--model') ? '' : ' --model ' + newJob.model
+            var newSampler = msg.content.includes('--sampler') ? '' : ' --sampler ' + newJob.sampler
+            var initSampler = msg.content.includes('--sampler') ? '' : ' --sampler ddim '
+            var newSteps = msg.content.includes('--steps') ? '' : ' --steps ' + newJob.steps
+            var newScale = msg.content.includes('--scale') ? '' : ' --scale ' + newJob.scale
+            var newHeight = msg.content.includes('--height') ? '' : ' --height ' +newJob.height
+            var newWidth = msg.content.includes('--width') ? '' :  ' --width ' + newJob.width
+            var newStrength = msg.content.includes('--strength') ? '' : ' --strength ' + newJob.strength
+            var newPerlin = msg.content.includes('--perlin') ? '' : ' --perlin ' + newJob.perlin
+            var newSeamless = msg.content.includes('--seamless') && !msg.content.includes('--seamless false') ? ' --seamless ' : ''
+            var newThreshold = msg.content.includes('--threshold') ? '' : ' --threshold ' + newJob.threshold
+            var newGfpgan_strength = msg.content.includes('--gfpgan_strength') ? '' : ' --gfpgan_strength ' + newJob.gfpgan_strength
+            var newCodeformer_strength = msg.content.includes('--codeformer_strength') ? '' : ' --codeformer_strength ' + newJob.codeformer_strength
+            var newUpscale_level = msg.content.includes('--upscale_level') ? '' : ' --upscale_level ' + newJob.upscale_level
+            var newUpscale_strength = msg.content.includes('--upscale_strength') ? '' : ' --upscale_strength ' + newJob.strength
+            var jobstring = newWidth + newHeight + newSteps + newSeed + newStrength + newScale + newSampler + newModel + newPerlin + newSeamless + newThreshold + newGfpgan_strength + newCodeformer_strength + newUpscale_level + newUpscale_strength
             // only works with normal renders - modified to change only mentioned parameters, otherwise use the same from referenced job
             msg.content = msg.content.replace('<@' + m.id + '>', '').replace('!dream', '')
             if (msg.content.startsWith('+')) {
