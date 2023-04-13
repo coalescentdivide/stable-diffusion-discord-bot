@@ -188,8 +188,7 @@ if(!creditsDisabled)
     execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
   })
 }
-const RestrictedModelData = fs.readFileSync('./dbRestrictedModels.json', 'utf8')
-const RestrictedModels = JSON.parse(RestrictedModelData)
+const RestrictedModels = JSON.parse(fs.readFileSync('./dbRestrictedModels.json', 'utf8'))
 
 // Functions
 
@@ -248,7 +247,7 @@ function request(request){
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (!isModelAllowed(request.userid, args.model)) { // Check if the user is allowed to use the requested model
-    console.log(`User ${request.userid} is not allowed to use model ${args.model}`)
+    log(`User ${request.userid} is not allowed to use model ${args.model}`)
     return
   }  
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
