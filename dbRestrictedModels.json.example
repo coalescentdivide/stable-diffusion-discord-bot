@@ -1,0 +1,15 @@
+{
+    "userID1": [
+        "model1",
+        "model2"
+    ],
+    "userID2": [
+        "model3"
+    ],
+    "userID3": [
+        "model4"
+    ],
+    "userID4": [
+        "model5"
+    ]
+}
