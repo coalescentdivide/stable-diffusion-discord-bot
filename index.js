@@ -1,7 +1,6 @@
 // Setup, loading libraries and initial config
-const dotenvConfig = require('dotenv').config().parsed
-if (!dotenvConfig || !dotenvConfig.apiUrl || !dotenvConfig.basePath || !dotenvConfig.channelID || !dotenvConfig.adminID || !dotenvConfig.discordBotKey || !dotenvConfig.pixelLimit || !dotenvConfig.fileWatcher || !dotenvConfig.samplers) {throw ('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options')}
-const config = {...dotenvConfig,privateModels: JSON.parse(dotenvConfig.PRIVATE_MODELS || "{}")}
+const config = require('dotenv').config().parsed
+if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
@@ -189,14 +188,15 @@ if(!creditsDisabled)
     execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
   })
 }
-
+const RestrictedModelData = fs.readFileSync('./dbRestrictedModels.json', 'utf8')
+const RestrictedModels = JSON.parse(RestrictedModelData)
 
 // Functions
 
 function isModelAllowed(userId, modelName) {
-  const allPrivateModels = [].concat(...Object.values(config.privateModels))
-  if (allPrivateModels.includes(modelName)) {
-    return (config.privateModels[userId] && config.privateModels[userId].includes(modelName)) || userId === config.adminID
+  const allRestrictedModels = [].concat(...Object.values(RestrictedModels))
+  if (allRestrictedModels.includes(modelName)) {
+    return (RestrictedModels[userId] && RestrictedModels[userId].includes(modelName)) || userId === config.adminID
   }
   return true
 }
