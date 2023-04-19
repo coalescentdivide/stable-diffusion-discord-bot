@@ -188,7 +188,7 @@ if(!creditsDisabled)
     execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
   })
 }
-
+const allGalleryChannels = JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8'))
 
 // Functions
 
@@ -1343,23 +1343,57 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
     if (channel&&channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
   })
 }
+async function sendToChannel(serverId, originalChannelId, messageId, msg) {
+  const galleryChannel = allGalleryChannels[serverId]
+  if (!galleryChannel) {
+    log(`No gallery channel found for server ID: ${serverId}`)
+    return
+  }
+  const channel = bot.getChannel(galleryChannel)
+  const messageLink = `https://discord.com/channels/${serverId}/${originalChannelId}/${messageId}`
+  const components = [{ type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.LINK, label: "Original message", url: messageLink, disabled: false }]}]
+  const existingReactions = msg.reactions.cache.filter(reaction => reaction.emoji.name === emoji && reaction.me)
+  if (existingReactions.size > 1) {
+    if (msg && msg.embeds && msg.embeds.length > 0) {
+      msg.embeds[0].description = ``
+      await channel.createMessage({ content: msg.content, embeds: msg.embeds, components: components }).catch(() => {
+        log(`Failed to send message to the specified channel for server ID: ${serverId}`)
+      })
+    } else {
+      await channel.createMessage({ content: msg.content, components: components }).catch(() => {
+        log(`Failed to send message to the specified channel for server ID: ${serverId}`)
+      })
+    }
+    await msg.addReaction(emoji).catch(() => {
+      log(`Failed to add reaction to original message for server ID: ${serverId}`)
+    })
+  }
+}
 
-bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
+bot.on("messageReactionAdd", async (msg,emoji,reactor) => { 
   if (msg.author){targetUserId=reactor.user.id}else{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}
   var embeds=false
   if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
   if (msg.author&&msg.author.id===bot.application.id){
-    switch(emoji.name){
+    switch(emoji.name){ // to use alongside starboard paste the following into starboard setup: star filters add content notmatch /^(?=.?:brain:.+?:straight_ruler:.+?:seedling:).$/
       case '😂':
-      case '👍':
-      case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name); break
+      case '👍': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
+      case '⭐': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
+      case '❤️': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
       case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
-      case '🙈':
-      case '👎':
+      case '👎': {
+        log('Negative emojis'.red+emoji.name.red)
+        if(msg.content.includes(reactor.user.id)){msg.delete().catch(() => {})}
+        break
+      }
       case '⚠️':
-      case '❌':
+      case '🙈':
+      case '❌': {
+        log('Negative emojis'.red+emoji.name.red)
+        if(msg.content.includes(reactor.user.id)){msg.delete().catch(() => {})}
+        break
+      }
       case '💩': {
         log('Negative emojis'.red+emoji.name.red)
         if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){msg.delete().catch(() => {})}
