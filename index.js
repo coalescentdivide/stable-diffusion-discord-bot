@@ -27,7 +27,8 @@ var jimp = require('jimp')
 const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
-var paused=false
+const ExifReader = require('exifreader')
+var paused=false // unused?
 var queue = []
 var users = []
 var payments = []
@@ -69,9 +70,11 @@ const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
+const allGalleryChannels = JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8'))||{}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
+var defaultModelInpaint=config.defaultModelInpaint||'inpainting'
 var models=null
 var lora=null
 var ti=null
@@ -193,8 +196,15 @@ if(!creditsDisabled)
   })
 }
 
-
 // Functions
+function auto2invoke(text) {
+  // convert auto1111 weight syntax to invokeai
+  // todo convert lora syntax eg <lora:add_detail:1> to withLora(add_detail,1)
+  const regex = /\(([^)]+):([^)]+)\)/g
+  return text.replace(regex, function(match, $1, $2) {
+    return '('+$1+')' + $2
+  })
+}
 
 function auto2invoke(text) {
   const regex = /\(([^)]+):([^)]+)\)/g
@@ -374,7 +384,7 @@ function chat(msg){if(msg!==null&&msg!==''){try{bot.createMessage(config.channel
 function chatChan(channel,msg){if(msg!==null&&msg!==''){try{bot.createMessage(channel, msg)}catch(err){log('Failed to send with error:'.bgRed);log(err)}}}
 function sanitize(prompt){
   if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replace(bannedWord,'')})}
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:\u0023-\u0039\u200D\u20E3\u2194-\u2199\u21A9-\u21AA\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25AA-\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614-\u2615\u261D\u263A\u2648-\u2653\u2660\u2663\u2665-\u2666\u2668\u267B\u267F\u2693\u26A0-\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D1\u26D3-\u26D4\u26E9\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2733-\u2734\u2744\u2747\u274C-\u274D\u274E\u2753-\u2755\u2757\u2763-\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934-\u2935\u2B05-\u2B07\u2B1B-\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299àáâãäåçèéêëìíîïñòóôõöøùúûüýÿ]/g, '').replace('`','')
 }
 function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
 function authorised(who,channel,guild) {
@@ -429,8 +439,8 @@ function chargeCredits(userID,amount){
     var user=users.find(x=>x.id===userID)
     user.credits=(user.credits-amount).toFixed(2)
     dbWrite()
-    var z='charged id '+userID+' - '+amount+'/'
-    if(user.credits>90){z+=user.credits.bgBrightGreen.white}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.white}
+    var z='charged id '+userID+' - '+amount.toFixed(2)+'/'
+    if(user.credits>90){z+=user.credits.bgBrightGreen.black}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.white}
     log(z.dim.bold)
   }
 }
@@ -1069,6 +1079,25 @@ function searchString(str, searchTerm) {
   return strLowerCase.includes(searchTermLowerCase) 
 }
 
+async function metaDataMsg(imageurl,channel){
+  debugLog('attempting metadata extraction from '+imageurl)
+  try{var metadata = await ExifReader.load(imageurl)
+  }catch(err){log(err)}
+  var newMsg='Metadata for '+imageurl+' \n'
+  Object.keys(metadata).forEach((t)=>{
+    newMsg+='**'+t+'**:'
+    Object.keys(metadata[t]).forEach((k)=>{
+      if(k==='description'&&metadata[t][k]===metadata[t]['value']){
+      } else {
+        if(k==='value'){newMsg+='`'+metadata[t][k]+'`'}
+        if(k==='description'){newMsg+=' *'+metadata[t][k]+'*'}
+      }
+    })
+    newMsg+='\n'
+  })
+  if(newMsg.length>0){sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})}
+}
+
 function process (file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
@@ -1218,9 +1247,9 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                // {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
@@ -1469,16 +1498,18 @@ bot.on("interactionCreate", async (interaction) => {
       var aspectRatios = ['1:1','3:4','4:3','9:5','5:9','9:16','16:9']
       if(newJob){
         var changeAspectResponse={content:':eye: **Aspect Ratios**\n Different aspect ratios will give different compositions.',flags:64,components:[]}
-        //
-        for(let i=0;i<ti.length;i+=25){
+        var oldPixelCount=newJob.width*newJob.height
+        for(let i=0;i<aspectRatios.length;i+=25){
           changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio',min_values:1,max_values:1,options:[]}]})
-          aspectRatios.forEach((i)=>{
-            var w=i.split(':')[0];var h=i.split(':')[1];var l
-            if (i='1:1'){l='square'}else if(w>h){l='landscape'}else{l='portrait'}
-            changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: i,value: i,description: l})
+          aspectRatios.forEach((a)=>{
+            var w=parseInt(a.split(':')[0]);var h=parseInt(a.split(':')[1]);var d;
+            var newWidth=Math.round(Math.sqrt(oldPixelCount * w / h))
+            var newHeight=Math.round(newWidth * h / w)
+            if (a==='1:1'){d='square'}else if(w>h){d='landscape'}else{d='portrait'}
+            changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: a,value: a,description: d+' '+newWidth+'x'+newHeight})
           })
         }
-        return interaction.editParent(changeAspectResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+        return interaction.editParent(changeAspectResponse).then((r)=>{debugLog(r)}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('addAspect')) {
       id=interaction.data.custom_id.split('-')[1]
@@ -1489,7 +1520,10 @@ bot.on("interactionCreate", async (interaction) => {
       var newAspect=interaction.data.values[0]
       if(newJob){
         var oldPixelCount=newJob.width*newJob.height
-        // Take aspect ratio
+        var newAspectWidth=newAspect.split(':')[0]
+        var newAspectHeight=newAspect.split(':')[1]
+        newJob.width=Math.round(Math.sqrt(oldPixelCount * newAspectWidth / newAspectHeight))
+        newJob.height=Math.round(newJob.width * newAspectHeight / newAspectWidth)
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1515,18 +1549,36 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
   })
 }
 
+async function sendToChannel(serverId, originalChannelId, messageId, msg) {
+  const galleryChannel = allGalleryChannels[serverId]
+  if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
+  const channel = await bot.getChannel(galleryChannel)
+  var alreadyInGallery=false
+  //if(channel.messages.length<50){debugLog('fetching gallery message history');await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
+  // await channel.getMessages({limit: 100})
+  const messageLink = `https://discord.com/channels/${serverId}/${originalChannelId}/${messageId}`
+  const components = [{ type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.LINK, label: "Original message", url: messageLink, disabled: false }]}]
+  channel.messages.forEach(message=>{if(message.content===msg.content){alreadyInGallery=true;debugLog('found in gallery')}}) // look through eris message cache for channel for matching msg
+  if (!alreadyInGallery){
+    if (msg && msg.embeds && msg.embeds.length > 0) {
+      msg.embeds[0].description = ``
+      await channel.createMessage({ content: msg.content, embeds: msg.embeds, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})
+    } else {await channel.createMessage({ content: msg.content, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})}
+  } else {debugLog('Found identical existing star gallery message')}
+}
+
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
   if (msg.author){targetUserId=reactor.user.id}else{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}
   var embeds=false
   if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
   if (msg.author&&msg.author.id===bot.application.id){
-    switch(emoji.name){
+    switch(emoji.name){ // to use alongside starboard paste the following into starboard setup: star filters add content notmatch /^(?=.?:brain:.+?:straight_ruler:.+?:seedling:).$/
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name); break
-      case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
+      case '❤️': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
+      case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break
       case '🙈':
       case '👎':
       case '⚠️':
@@ -1534,6 +1586,7 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
       case '💩': {
         log('Negative emojis'.red+emoji.name.red)
         if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){msg.delete().catch(() => {})}
+        // todo try and delete the file from disk too
         break
       }
     }
@@ -1651,34 +1704,12 @@ bot.on("messageCreate", (msg) => {
                   newJob.sampler=s
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
-/*            } else if (msg.content.startsWith('loras')){
-                var lorasToTest=[]
-                var lorasToTestString=msg.content.substring(6)
-                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
-                var basePrompt=newJob.prompt
-                debugLog(lorasToTest)
-                lorasToTest.forEach(l=>{
-                  newJob.prompt=basePrompt+' withLora('+l+',0.8)'
-                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-                })
-            } else if (msg.content.startsWith('tis')){
-                var tisToTest=[]
-                var tisToTestString=msg.content.substring(4)
-                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
-                  partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
-                })}
-                var basePrompt=newJob.prompt
-                debugLog(tisToTest)
-                tisToTest.forEach(t=>{
-                  newJob.prompt=basePrompt+' <'+t+'>'
-                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-                })*/
             } else if (msg.content.startsWith('embeds')){
                 var tisToTest=[];var lorasToTest=[];var tisToTestString=msg.content.substring(7);var lorasToTestString=tisToTestString
                 if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
                   partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
                 })}
-                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
+                if(lorasToTestString==='all'){lorasToTest=lora}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
                 var basePrompt=newJob.prompt
                 var totalTests=tisToTest.length+lorasToTest.length
                 var newMsg='Testing '+totalTests+' embeddings total at a cost of '+totalTests*newJob.cost+' :coin: '
@@ -1699,10 +1730,15 @@ bot.on("messageCreate", (msg) => {
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
             msg.attachments=msg.referencedMessage.attachments
-            msg.content='!dream '+msg.content.substring(9) + ' ' + newModel + initSampler //use same model and DDIM sampler by default unless specified
-          } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments){
+            var newDimensions=' --width '+msg.referencedMessage.attachments[0].width+' --height '+msg.referencedMessage.attachments[0].height
+            msg.content='!dream '+msg.content.substring(9)
+            if (!msg.content.includes('-- width')&&!msg.content.includes('--height')){msg.content+=newDimensions}
+          } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments&&msg.referencedMessage.attachments[0]['content_type'].startsWith('image')){
             msg.attachments=msg.referencedMessage.attachments
-              msg.content='!dream '+msg.content.substring(7) + ' ' + '--model' + ' inpainting ' + initSampler //use inpaint model by default unless specified           
+            var newDimensions=' --width '+msg.referencedMessage.attachments[0].width+' --height '+msg.referencedMessage.attachments[0].height
+            msg.content='!dream '+msg.content.substring(7)
+            if(!msg.content.includes('-- model')){msg.content+=' --model '+defaultModelInpaint}
+            if (!msg.content.includes('-- width')&&!msg.content.includes('--height')){msg.content+=newDimensions}
           } else if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
             msg.content='!background'
             msg.attachments=msg.referencedMessage.attachments
@@ -1721,6 +1757,9 @@ bot.on("messageCreate", (msg) => {
             if (msg.content[0]!=='!'){msg.content='!'+msg.content}
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('text')||msg.content.startsWith('!text')){
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('metadata')){
+            msg.content='!metadata'
             msg.attachments=msg.referencedMessage.attachments
           }
         }
@@ -2004,6 +2043,13 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!metadata':{
+        if (msg.attachments.length===1&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          metaDataMsg(attachmentsUrls[0],msg.channel.id)
+        }
+        break
+      }
       case '!embeds':{
         socket.emit("getLoraModels")
         socket.emit("getTextualInversionTriggers")
@@ -2091,7 +2137,7 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list;debugLog(data)})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
